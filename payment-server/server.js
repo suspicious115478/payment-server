@@ -18,13 +18,16 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+app.get("/", (req, res) => {
+  res.send("SERVER RUNNING");
+});
+
 app.post("/create-qr", async (req, res) => {
 
   try {
 
     const { restaurantId, amount, orderId } = req.body;
 
-    // restaurant fetch
     const snap = await db
       .collection("restaurants")
       .doc(restaurantId)
@@ -45,7 +48,6 @@ app.post("/create-qr", async (req, res) => {
       key_secret: data.keySecret
     });
 
-    // QR create
     const qr = await razorpay.qrCode.create({
       type: "upi_qr",
       usage: "single_use",
@@ -57,7 +59,6 @@ app.post("/create-qr", async (req, res) => {
       }
     });
 
-    // save qr info
     await db.collection("restaurants")
       .doc(restaurantId)
       .collection("orders")
@@ -97,7 +98,6 @@ app.post("/webhook", async (req, res) => {
 
       const orderId = notes.orderId;
 
-      // find order
       const restaurants = await db.collection("restaurants").get();
 
       for (const doc of restaurants.docs) {
@@ -133,6 +133,8 @@ app.post("/webhook", async (req, res) => {
 
 });
 
-app.listen(process.env.PORT || 3000, () => {
-  console.log("SERVER RUNNING");
+const PORT = process.env.PORT || 3000;
+
+app.listen(PORT, () => {
+  console.log(`SERVER RUNNING ON ${PORT}`);
 });
