@@ -37,12 +37,14 @@ app.post("/create-qr", async (req, res) => {
     const { restaurantId, amount, orderId } = req.body;
 
     if (!restaurantId || !amount || !orderId) {
+
       return res.status(400).json({
+        success: false,
         error: "Missing fields"
       });
     }
 
-    /* GET RESTAURANT RAZORPAY SETTINGS */
+    /* GET RAZORPAY SETTINGS */
 
     const snap = await db
       .collection("restaurants")
@@ -52,20 +54,14 @@ app.post("/create-qr", async (req, res) => {
       .get();
 
     if (!snap.exists) {
+
       return res.status(404).json({
+        success: false,
         error: "Razorpay settings not found"
       });
     }
 
     const data = snap.data();
-
-    if (!data.keyId || !data.keySecret) {
-      return res.status(400).json({
-        error: "Invalid Razorpay keys"
-      });
-    }
-
-    /* CREATE RAZORPAY INSTANCE */
 
     const razorpay = new Razorpay({
       key_id: data.keyId,
@@ -75,34 +71,45 @@ app.post("/create-qr", async (req, res) => {
     /* CREATE QR */
 
     const qr = await razorpay.qrCode.create({
+
       type: "upi_qr",
+
       usage: "single_use",
+
       fixed_amount: true,
+
       payment_amount: Math.round(amount * 100),
+
       description: "Kiosk Order",
+
       notes: {
-        orderId: orderId,
-        restaurantId: restaurantId
+        orderId,
+        restaurantId
       }
     });
 
-    /* UPDATE FIRESTORE */
+    /* UPDATE ORDER */
 
-    await db.collection("restaurants")
+    await db
+      .collection("restaurants")
       .doc(restaurantId)
       .collection("orders")
       .doc(orderId)
       .update({
+
         qrId: qr.id,
-        qrImage: qr.image_url,
+
         paymentStatus: "PENDING"
       });
 
-    /* RESPONSE */
+    /* SEND RESPONSE */
 
     res.json({
+
       success: true,
-      qrImage: qr.image_url,
+
+      qrImage: qr.close_by,
+
       qrId: qr.id
     });
 
@@ -111,11 +118,12 @@ app.post("/create-qr", async (req, res) => {
     console.log("CREATE QR ERROR:", e);
 
     res.status(500).json({
+
       success: false,
+
       error: e.message
     });
   }
-
 });
 
 /* WEBHOOK */
@@ -130,31 +138,44 @@ app.post("/webhook", async (req, res) => {
 
     if (event === "payment.captured") {
 
-      const payment = req.body.payload.payment.entity;
+      const payment =
+        req.body.payload.payment.entity;
 
       const notes = payment.notes || {};
 
-      const orderId = notes.orderId;
-      const restaurantId = notes.restaurantId;
+      const orderId =
+        notes.orderId;
+
+      const restaurantId =
+        notes.restaurantId;
 
       if (!orderId || !restaurantId) {
-        return res.status(400).send("Missing notes");
+
+        return res.status(400)
+          .send("Missing notes");
       }
 
-      /* UPDATE ORDER */
-
-      await db.collection("restaurants")
+      await db
+        .collection("restaurants")
         .doc(restaurantId)
         .collection("orders")
         .doc(orderId)
         .update({
+
           paymentStatus: "SUCCESS",
+
           paymentId: payment.id,
+
           paymentAmount: payment.amount / 100,
-          paidAt: admin.firestore.FieldValue.serverTimestamp()
+
+          paidAt:
+            admin.firestore.FieldValue.serverTimestamp()
         });
 
-      console.log("PAYMENT SUCCESS:", orderId);
+      console.log(
+        "PAYMENT SUCCESS:",
+        orderId
+      );
     }
 
     res.status(200).send("OK");
@@ -165,7 +186,6 @@ app.post("/webhook", async (req, res) => {
 
     res.status(500).send(e.message);
   }
-
 });
 
 /* START SERVER */
@@ -173,5 +193,8 @@ app.post("/webhook", async (req, res) => {
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
-  console.log(`SERVER RUNNING ON ${PORT}`);
+
+  console.log(
+    `SERVER RUNNING ON ${PORT}`
+  );
 });
