@@ -3,10 +3,20 @@ const express = require("express");
 const cors = require("cors");
 const Razorpay = require("razorpay");
 const admin = require("firebase-admin");
-
+const { S3Client, PutObjectCommand, DeleteObjectCommand } = require("@aws-sdk/client-s3");
 const app = express();
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: "15mb" }));
+
+/* AWS S3 */
+const s3 = new S3Client({
+  region: process.env.AWS_REGION,
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY
+  }
+});
+const S3_BUCKET = process.env.S3_BUCKET_NAME;
 
 /* FIREBASE */
 const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
@@ -86,6 +96,65 @@ app.post("/create-qr", async (req, res) => {
 
   } catch (e) {
     console.log("CREATE QR ERROR:", e);
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+/* WEBHOOK */
+/* UPLOAD AD BANNER SLOT (restaurantId ke UID-based folder me, slot 1-6) */
+app.post("/upload-banner-slot", async (req, res) => {
+  try {
+    const { restaurantId, slot, base64 } = req.body;
+    if (!restaurantId || !slot || !base64) {
+      return res.status(400).json({ success: false, error: "Missing fields" });
+    }
+    if (slot < 1 || slot > 6) {
+      return res.status(400).json({ success: false, error: "Invalid slot" });
+    }
+
+    const matches = base64.match(/^data:(image\/\w+);base64,(.+)$/);
+    const contentType = matches ? matches[1] : "image/jpeg";
+    const rawBase64 = matches ? matches[2] : base64;
+    const buffer = Buffer.from(rawBase64, "base64");
+
+    const ext = contentType.split("/")[1] || "jpg";
+    const key = `restaurants/${restaurantId}/ad-banners/banner_${slot}.${ext}`;
+
+    await s3.send(new PutObjectCommand({
+      Bucket: S3_BUCKET,
+      Key: key,
+      Body: buffer,
+      ContentType: contentType,
+      ACL: "public-read"
+    }));
+
+    const url = `https://${S3_BUCKET}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`;
+
+    res.json({ success: true, url, slot });
+  } catch (e) {
+    console.log("UPLOAD BANNER ERROR:", e);
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+/* DELETE AD BANNER SLOT */
+app.post("/delete-banner-slot", async (req, res) => {
+  try {
+    const { restaurantId, slot, ext } = req.body;
+    if (!restaurantId || !slot) {
+      return res.status(400).json({ success: false, error: "Missing fields" });
+    }
+
+    const key = `restaurants/${restaurantId}/ad-banners/banner_${slot}.${ext || "jpg"}`;
+
+    await s3.send(new DeleteObjectCommand({
+      Bucket: S3_BUCKET,
+      Key: key
+    }));
+
+    res.json({ success: true });
+  } catch (e) {
+    console.log("DELETE BANNER ERROR:", e);
     res.status(500).json({ success: false, error: e.message });
   }
 });
