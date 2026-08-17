@@ -120,12 +120,11 @@ app.post("/upload-banner-slot", async (req, res) => {
     const ext = contentType.split("/")[1] || "jpg";
     const key = `restaurants/${restaurantId}/ad-banners/banner_${slot}.${ext}`;
 
-    await s3.send(new PutObjectCommand({
+     await s3.send(new PutObjectCommand({
       Bucket: S3_BUCKET,
       Key: key,
       Body: buffer,
-      ContentType: contentType,
-      ACL: "public-read"
+      ContentType: contentType
     }));
 
     const url = `https://${S3_BUCKET}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`;
