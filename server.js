@@ -101,6 +101,47 @@ app.post("/create-qr", async (req, res) => {
 });
 
 /* WEBHOOK */
+/* TRANSCRIBE (Azure Speech short audio) */
+const https = require("https");
+app.post("/transcribe", express.raw({ type: "*/*", limit: "2mb" }), (req, res) => {
+  if (!process.env.TRANSCRIBE_SECRET || req.get("x-kiosk-key") !== process.env.TRANSCRIBE_SECRET) {
+    return res.status(401).json({ success: false, error: "Unauthorized" });
+  }
+  if (!Buffer.isBuffer(req.body) || req.body.length < 1000) {
+    return res.status(400).json({ success: false, error: "No audio" });
+  }
+  const region = process.env.AZURE_SPEECH_REGION || "centralindia";
+  const azReq = https.request({
+    hostname: `${region}.stt.speech.microsoft.com`,
+    path: "/speech/recognition/conversation/cognitiveservices/v1?language=en-IN",
+    method: "POST",
+    headers: {
+      "Ocp-Apim-Subscription-Key": process.env.AZURE_SPEECH_KEY,
+      "Content-Type": "audio/wav; codecs=audio/pcm; samplerate=16000",
+      "Content-Length": req.body.length
+    },
+    timeout: 15000
+  }, (azRes) => {
+    let data = "";
+    azRes.on("data", (c) => (data += c));
+    azRes.on("end", () => {
+      try {
+        const j = JSON.parse(data);
+        console.log("TRANSCRIBE:", j.RecognitionStatus, j.DisplayText);
+        res.json({ success: azRes.statusCode === 200, status: j.RecognitionStatus, text: j.DisplayText || "" });
+      } catch (e) {
+        res.status(502).json({ success: false, error: "Bad Azure response", code: azRes.statusCode });
+      }
+    });
+  });
+  azReq.on("timeout", () => azReq.destroy(new Error("timeout")));
+  azReq.on("error", (e) => {
+    if (!res.headersSent) res.status(502).json({ success: false, error: e.message });
+  });
+  azReq.write(req.body);
+  azReq.end();
+});
+
 /* UPLOAD AD BANNER SLOT (restaurantId ke UID-based folder me, slot 1-6) */
 app.post("/upload-banner-slot", async (req, res) => {
   try {
